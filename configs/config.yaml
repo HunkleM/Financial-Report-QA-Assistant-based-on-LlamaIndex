@@ -1,0 +1,42 @@
+llm:
+  strong_model: qwen2.5:7b
+  weak_model: qwen2.5:7b
+  ollama_base_url: http://localhost:11434
+  temperature: 0.1
+  max_tokens: 2048
+
+embedding:
+  model: BAAI/bge-m3
+  device: mps          # Apple Silicon 加速
+
+reranker:
+  model: BAAI/bge-reranker-base
+  top_n: 5
+
+parser:
+  use_llamaparse: true  # 是否启用 LlamaParse (需要 API Key)
+
+chunking:
+  strategy: "semantic"  # 可选: "fixed", "semantic"
+  chunk_size: 512       # fixed 策略使用
+  chunk_overlap: 51     # fixed 策略使用
+  semantic_buffer_size: 1               # semantic 策略参数
+  semantic_breakpoint_percentile: 95    # semantic 策略分段阈值
+
+raptor:
+  use_raptor: true      # 是否启用 RAPTOR 层次结构
+  max_levels: 3         # 树的最大层数 (层数越多构建越慢)
+  summary_model: "qwen2.5:7b" # 建议用小模型生成摘要以节省时间
+
+retrieval:
+  bm25_top_k: 20
+  vector_top_k: 20
+  final_top_k: 5
+
+storage:
+  chroma_persist_dir: ./chroma_db
+  data_dir: ./data
+
+evaluation:
+  test_set_path: ./data/test_set.json
+  judge_model: qwen2.5:7b

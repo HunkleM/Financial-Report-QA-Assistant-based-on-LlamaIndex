@@ -1,0 +1,29 @@
+# LlamaIndex Core & Extensions
+llama-index-core>=0.10.0
+llama-index-vector-stores-chroma
+llama-index-embeddings-huggingface
+llama-index-llms-ollama
+llama-index-retrievers-bm25
+
+# High-Fidelity Parsing (PDF to Markdown)
+llama-parse
+pymupdf>=1.23.0  # Fallback parser if LlamaParse is not configured
+
+# Advanced Retrieval & Reranking
+sentence-transformers>=2.2.0
+
+# Vector Database
+chromadb>=0.5.0
+
+# Web UI & Workspace
+gradio>=4.0.0
+
+# Evaluation & Metrics
+ragas>=0.2.0
+datasets
+pandas
+
+# Utilities
+python-dotenv
+pyyaml
+html2text
