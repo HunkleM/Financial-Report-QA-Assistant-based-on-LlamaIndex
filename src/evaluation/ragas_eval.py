@@ -1,86 +1,149 @@
 import json
-import yaml
+import os
 import pandas as pd
+from pathlib import Path
 from datasets import Dataset
+
+# LlamaIndex & Ollama
+from llama_index.llms.ollama import Ollama
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.core import PromptTemplate
+
+# Ragas 相关包
 from ragas import evaluate
-from ragas.metrics import (
-    context_recall,
-    context_precision,
-    faithfulness,
-    answer_relevancy,
-)
-from src.generation.llm_backend import init_llm
-from src.retrieval.retriever import get_hybrid_retriever
-from src.retrieval.reranker import get_reranker
-from src.ingest.indexer import build_or_load_index
+from ragas.metrics import faithfulness, answer_relevancy, context_precision
+# 如果本地运行 Ragas 报错，需要引入以下包装器 (取决于 Ragas 的具体版本)
+from ragas.llms import LlamaIndexLLMWrapper
+from ragas.embeddings import LlamaIndexEmbeddingsWrapper
 
-def get_config():
-    with open("configs/config.yaml", "r") as f:
-        return yaml.safe_load(f)
+# 项目内部模块
+from src.utils.config import GLOBAL_CONFIG
+from src.ingest.indexer import build_vector_index
+from src.retrieval.retriever import get_retriever
+from src.generation.pipeline import QA_PROMPT_TEMPLATE
 
-def run_ragas_evaluation(test_set_path: str):
+def load_test_set(file_path: str | Path) -> list:
+    """加载测试用例"""
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"找不到测试集文件: {file_path}")
+    with open(file_path, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+def run_evaluation():
     """
-    运行 RAGAS 自动化评估。
+    执行 Ragas 本地评估闭环
     """
-    config = get_config()
-    llm = init_llm()
+    # 1. 读取配置
+    judge_model_name = GLOBAL_CONFIG["evaluation"]["judge_model"]
+    base_url = GLOBAL_CONFIG["llm"]["ollama_base_url"]
+    embed_model_name = GLOBAL_CONFIG["embedding"]["model"]
+    device = GLOBAL_CONFIG["embedding"]["device"]
+    test_set_path = GLOBAL_CONFIG["evaluation"]["test_set_path"]
     
-    # 1. 加载测试集
-    with open(test_set_path, "r", encoding="utf-8") as f:
-        test_data = json.load(f)
+    print(f"⚖️ [Evaluation] 启动本地无情裁判: {judge_model_name}")
     
-    # 2. 初始化 RAG 组件以获取实际回答
-    index = build_or_load_index()
-    retriever = get_hybrid_retriever(index)
-    reranker = get_reranker()
+    # 2. 实例化裁判模型 (Judge LLM) 和裁判向量 (Judge Embedding)
+    # 这里我们使用强大的 72B 模型作为 Ragas 的裁判
+    judge_llm = Ollama(model=judge_model_name, base_url=base_url, request_timeout=600.0)
+    judge_embedding = HuggingFaceEmbedding(model_name=embed_model_name, device=device)
     
-    # 3. 收集预测结果
-    questions = []
-    answers = []
-    contexts = []
-    ground_truths = []
-    
-    print(f"开始对 {len(test_data)} 个样本进行推理...")
-    for item in test_data:
-        q = item['question']
-        # 模拟检索
-        nodes = retriever.retrieve(q)
-        nodes = reranker.postprocess_nodes(nodes)
-        context_str = [n.get_content() for n in nodes]
-        
-        # 模拟生成
-        response = llm.complete(f"基于上下文: {context_str}\n回答问题: {q}")
-        
-        questions.append(q)
-        answers.append(str(response))
-        contexts.append(context_str)
-        ground_truths.append(item.get('reference_answer', ""))
+    # 将 LlamaIndex 的模型包装为 Ragas 可识别的格式
+    ragas_llm = LlamaIndexLLMWrapper(judge_llm)
+    ragas_emb = LlamaIndexEmbeddingsWrapper(judge_embedding)
 
-    # 4. 构造 RAGAS 数据集
-    ds = Dataset.from_dict({
-        "question": questions,
-        "answer": answers,
-        "contexts": contexts,
-        "ground_truth": ground_truths
-    })
+    # 3. 初始化待测系统的 RAG 管线 (使用单次查询引擎，防止测试题之间上下文污染)
+    print("⚙️ [Pipeline] 准备待测系统引擎...")
+    index = build_vector_index()
+    retriever = get_retriever(index)
     
-    # 5. 执行评估 (使用本地 LLM 作为 Judge)
-    # 注意：Ragas 默认尝试使用 OpenAI，这里可能需要针对本地模型进行封装适配
-    print("开始 RAGAS 指标计算...")
-    result = evaluate(
-        ds,
-        metrics=[
-            context_precision,
-            context_recall,
-            faithfulness,
-            answer_relevancy,
-        ],
-        # llm=llm, # 传入本地模型实例
+    # 使用基础生成模型 (如 7B) 作为答题选手
+    answer_llm = Ollama(
+        model=GLOBAL_CONFIG["llm"]["weak_model"], 
+        base_url=base_url, 
+        temperature=0.0
     )
     
-    print("评估完成！")
+    # 构建 Query Engine
+    query_engine = index.as_query_engine(
+        retriever=retriever,
+        llm=answer_llm,
+        text_qa_template=PromptTemplate(QA_PROMPT_TEMPLATE)
+    )
+
+    # 4. 加载测试集并生成回答
+    print(f"📂 [Dataset] 加载测试集: {test_set_path}")
+    test_cases = load_test_set(test_set_path)
+    
+    data_dict = {
+        "question": [],
+        "answer": [],
+        "contexts": [],
+        "ground_truth": []
+    }
+
+    print("🤖 [Running] 开始生成测试题答案...")
+    for idx, case in enumerate(test_cases, 1):
+        q = case["question"]
+        gt = case.get("ground_truth", "")
+        print(f"  [{idx}/{len(test_cases)}] 正在回答: {q}")
+        
+        # 运行问答引擎
+        response = query_engine.query(q)
+        
+        # 提取上下文 (contexts) 文本列表
+        contexts = [node.get_content() for node in response.source_nodes]
+        
+        # 填充评估数据集
+        data_dict["question"].append(q)
+        data_dict["answer"].append(response.response)
+        data_dict["contexts"].append(contexts)
+        data_dict["ground_truth"].append(gt)
+
+    # 转换为 HuggingFace Dataset 格式，供 Ragas 消费
+    dataset = Dataset.from_dict(data_dict)
+
+    # 5. 执行 Ragas 评估
+    print("\n⚖️ [Evaluation] 裁判 72B 正在打分 (这一步需要大量算力，请耐心等待)...")
+    metrics = [
+        context_precision, # 检索精度 (相关上下文是否排在前面)
+        faithfulness,      # 忠实度 (回答是否有幻觉，是否完全基于上下文)
+        answer_relevancy   # 回答相关性 (回答是否切中问题)
+    ]
+    
+    result = evaluate(
+        dataset=dataset,
+        metrics=metrics,
+        llm=ragas_llm,
+        embeddings=ragas_emb,
+        raise_exceptions=False # 防止个别题目打分失败导致整个流程崩溃
+    )
+
+    # 6. 动态生成实验报告名称与路径
+    strategy = GLOBAL_CONFIG["chunking"].get("strategy", "fixed")
+    is_phase2 = (strategy == "semantic")
+    
+    phase_name = "Phase 2A (Advanced Semantic + RAPTOR)" if is_phase2 else "Phase 1 (Fixed-256 Baseline)"
+    report_filename = "phase2_evaluation_report.csv" if is_phase2 else "phase1_evaluation_report.csv"
+    report_path = f"data/{report_filename}"
+
+    print("\n" + "="*50)
+    print(f"🏆 {phase_name} 评估报告出炉")
+    print("="*50)
     print(result)
-    return result
+    
+    # 导出到 CSV 供进一步分析，确保不同 Phase 的消融实验数据不被覆盖
+    df = result.to_pandas()
+    df.to_csv(report_path, index=False)
+    print(f"\n📁 详细评分明细已保存至: {report_path}")
+    print("="*50)
+
 
 if __name__ == "__main__":
-    run_ragas_evaluation("data/test_set.json")
+    try:
+        run_evaluation()
+    except Exception as e:
+        print(f"\n❌ 评估脚本运行失败: {str(e)}")
+        print("请检查:")
+        print("1. Ollama 服务是否启动，且已下载 72B 模型。")
+        print("2. data/test_set.json 是否存在。")
+        print("3. 是否已运行过 indexer.py 存入至少一篇研报。")

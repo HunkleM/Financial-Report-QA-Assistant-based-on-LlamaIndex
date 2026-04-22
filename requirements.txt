@@ -1,29 +1,33 @@
-# LlamaIndex Core & Extensions
+# 核心框架 (LlamaIndex v0.10+)
 llama-index-core>=0.10.0
-llama-index-vector-stores-chroma
-llama-index-embeddings-huggingface
+
+# LLM 与 嵌入模型本地运行支持
 llama-index-llms-ollama
-llama-index-retrievers-bm25
+llama-index-embeddings-huggingface
 
-# High-Fidelity Parsing (PDF to Markdown)
-llama-parse
-pymupdf>=1.23.0  # Fallback parser if LlamaParse is not configured
+# 向量数据库
+chromadb
+llama-index-vector-stores-chroma
 
-# Advanced Retrieval & Reranking
-sentence-transformers>=2.2.0
+# PDF 解析器 (支持双栏、高保真物理页码提取)
+pymupdf
+llama-index-readers-file
 
-# Vector Database
-chromadb>=0.5.0
+# 检索增强 (精排 Reranker)
+llama-index-postprocessor-flag-embedding-reranker
 
-# Web UI & Workspace
-gradio>=4.0.0
+# RAPTOR 树状摘要 (Phase 2 使用)
+llama-index-packs-raptor
 
-# Evaluation & Metrics
-ragas>=0.2.0
-datasets
-pandas
+# 本地无情裁判与评估框架
+ragas
 
-# Utilities
-python-dotenv
+# 沉浸式交互前端 (Phase 2 使用)
+gradio
+
+# 自主代理外部数据源 (Phase 2 使用)
+yfinance
+
+# 辅助工具
 pyyaml
-html2text
+pydantic

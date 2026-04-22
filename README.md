@@ -1,125 +1,101 @@
-# Insight · 机构级金融研报智能工作台
+# Insight: 垂直领域金融研报分析引擎 (Financial Report Analysis Engine)
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Status-Beta-brightgreen" alt="Status" />
-  <img src="https://img.shields.io/badge/LLM-Qwen2.5--7B-blue" alt="LLM" />
-  <img src="https://img.shields.io/badge/Framework-LlamaIndex-purple" alt="Framework" />
-</p>
+![Project Status](https://img.shields.io/badge/Status-Phase_2A_Active-blue.svg)
+![Hardware](https://img.shields.io/badge/Hardware-Apple_Silicon_MPS-white.svg)
+![Dependencies](https://img.shields.io/badge/Framework-LlamaIndex_v0.10+-purple.svg)
 
-**Insight** 是对标 **NotebookLM** 体验的 RAG（检索增强生成）分析工作台，面向复杂排版的金融研报（PDF）。从底层解析、索引到前台交互均针对研报场景优化：不仅定位原文，还能理解表格、提炼宏观观点并合成可用知识。
+> **Insight** 旨在构建一个对标 Google NotebookLM 体验的金融研报 RAG 工作台。该系统完全离线部署于 Apple Mac Studio (M3 Ultra) 架构，利用 512GB 统一内存无缝支撑 `Qwen2.5-72B` 与高级检索管线的端到端运行，实现**零核心大模型 API 推理成本**与极致的数据隐私安全。
 
 ---
 
-## 核心特性
+## ✨ 核心特性 (Key Features)
 
-### 数据底座：深度解析与索引
-
-| 能力 | 说明 |
-|------|------|
-| **云端解析 (LlamaParse)** | 穿透复杂 PDF，稳定抽取财务表格、双栏正文，输出高保真 Markdown。 |
-| **语义分块** | 基于 BGE 句向量切分语义边界，避免生硬按字数截断，保持段落与表格逻辑完整。 |
-| **混合检索 (Hybrid RRF)** | `BM25` 关键词 + `bge-m3` 语义双路召回，RRF（倒数排序融合）合并结果。 |
-| **二次精排** | `bge-reranker-base` 降噪，将高质量证据送入 LLM。 |
-
-### 认知升级：宏观视角（RAPTOR）
-
-入库时自底向上构建层次摘要树（Level 1～3），细粒度事实与行业级趋势均可被稳定检索。
-
-### 沉浸式工作台（类 NotebookLM）
-
-| 能力 | 说明 |
-|------|------|
-| **三分栏** | 左侧数据、中间对话与灵感区、右侧原生 PDF 阅读器。 |
-| **证据链联动** | 生成内容带引用卡片；点击引用，PDF 预览**跳转至对应页码**。 |
-| **跨文档合成** | 一键生成多文档对比表，并可写入「分析师灵感库 (Notepad)」，便于拼装正式报告。 |
+- 🔒 **100% 本地化 (Local-First)**：推理（7B/72B）、向量化 (BGE-M3)、精排 (BGE-Reranker) 均基于 MPS 硬件加速在本地完成。
+- ✂️ **自适应语义分块 (Semantic Chunking)**：抛弃生硬的字数截断，依据句间余弦相似度（95% 阈值）进行自适应切分，保持财务逻辑连贯。
+- 🌲 **宏观树状摘要 (RAPTOR)**：集成 `RaptorPack`，后台调用 7B 模型递归构建知识树，完美解答跨研报的宏观总结类提问。
+- 🤝 **倒数秩融合混合检索 (Hybrid Search)**：在内存中重构 BM25 词频矩阵，与 ChromaDB 稠密向量双路召回后执行 RRF 融合，大幅降低数字型实体的漏召回率。
+- 🎯 **交叉编码器精排 (Cross-Encoder Reranking)**：对粗筛结果进行地狱级重排截断，仅向生成端提交 Top-5 高纯度片段。
+- 📊 **本地量化评估闭环 (LLM-as-a-Judge)**：内嵌 RAGAS 自动化评估脚本，使用本地 `Qwen2.5-72B` 充当无情裁判，产出客观的消融实验对比报告。
 
 ---
 
-## 快速启动与配置
+## 🗺️ 简化版技术路线图 (Architecture Pipeline)
 
-以下步骤默认你在**项目根目录**（含 `configs/`、`src/`、`requirements.txt` 的目录）操作。配置文件与 `.env` 均相对该目录加载；若从其他路径启动，可能导致找不到 `configs/config.yaml`。
+本项目构建了一条严密且可自适应切换配置 (Phase 1 vs Phase 2A) 的 RAG 数据流：
 
-### 硬件与环境
-
-| 档位 | 建议配置 |
-|------|----------|
-| **最低** | Apple Silicon (M1/M2) 或 x86_64 CPU，**16GB** 内存。可跑 7B 量化模型，速度较慢，不适合重度跨文档分析。 |
-| **推荐** | Apple Silicon (M1/M2/M3 Pro/Max) **≥32GB** 统一内存；或 **NVIDIA GPU**（如 RTX 3060/4060，**≥12GB** 显存）的 Windows/Linux 主机。 |
-
-- **Python**：建议 **3.10+**（与当前依赖兼容）。
-- **网络**：首次运行会从 Hugging Face 拉取 `embedding` / `reranker` 等模型，需能访问外网。
-
-### 步骤 1：Python 虚拟环境与依赖
-
-```bash
-cd /path/to/CS6496-group
-
-python3 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-
-pip install -r requirements.txt
+```mermaid
+graph LR
+    A[PDF 研报] --> B(PyMuPDF 提取+页码注入)
+    B --> C{自适应分块}
+    C -->|Phase 1| D[固定 256 Token]
+    C -->|Phase 2A| E[BGE-M3 语义分块]
+    
+    D --> F[(ChromaDB)]
+    E --> F
+    E -.->|RAPTOR| G[后台 7B 宏观摘要树] -.-> F
+    
+    H[用户提问] --> I{检索策略}
+    I -->|Phase 1| J[单路向量检索]
+    I -->|Phase 2A| K[BM25 + Vector 双路 RRF 融合]
+    
+    J --> L[bge-reranker 精排]
+    K --> L
+    
+    L -->|Top 5 Context| M(Qwen2.5-7B 对话引擎)
+    M --> N[带物理页码的精准回答]
 ```
 
-### 步骤 2：Ollama（本地 LLM）
+---
 
-1. 安装并启动 [Ollama](https://ollama.com/)（默认服务地址 `http://localhost:11434`）。
-2. 拉取与配置一致的对话模型（须与 `configs/config.yaml` 中 `llm.strong_model` / `weak_model` 一致，默认如下）：
+## 📂 文档与指南地图 (Documentation Map)
 
+本项目的核心资产在于其极其严谨的文档定义与工程规范。**在进行任何开发前，请务必阅读以下文档：**
+
+- 🤖 **[AI 与开发者上下文总览](docs/00_README_AI_CONTEXT.md)**：开发本项目的 5 条铁律（必读）。
+- 🏗️ **[架构设计与执行计划](docs/00_course_execution_plan.md)**：包含完整的 Mermaid 数据流转架构图与实施蓝图。
+- 📄 **[API 契约与数据流转](docs/01_architecture_data_flow.md)**：定义了严格的 `source` 与 `page_label` 溯源元数据契约。
+- ⚖️ **[评估与消融实验指标](docs/02_evaluation_metrics.md)**：定义了 20 题标准化测试集与内存-性能权衡分析方法论。
+- 📝 **[技术债与重构日志](docs/04_technical_debt_log.md)**：记录了当前系统的性能瓶颈与未来重构计划（如 ChromaDB 耦合）。
+
+---
+
+## 🚀 快速启动与中期实验复现 (Quick Start)
+
+本项目采用严格的**配置驱动 (Config-Driven)** 模式。通过修改 `configs/config.yaml` 即可无缝切换系统形态。
+
+### 1. 环境准备
 ```bash
+# 激活虚拟环境并安装 LlamaIndex 现代模块化依赖
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# 确保本地 Ollama 服务已启动，并拥有以下模型：
+ollama pull qwen2.5:72b
 ollama pull qwen2.5:7b
 ```
 
-3. 可选自检：`ollama list` 中能看到 `qwen2.5:7b`。若你修改了 YAML 中的模型名，请 `pull` 同名模型。
-
-### 步骤 3：环境变量 `.env`（LlamaParse）
-
-在项目根目录创建或编辑 `.env`，填入 [LlamaCloud API Key](https://cloud.llamaindex.ai/)：
-
-```env
-LLAMA_CLOUD_API_KEY=llx-你的密钥
-```
-
-- **无 API Key**：在 `configs/config.yaml` 中将 `parser.use_llamaparse` 设为 `false`，将使用本地基础解析（`pymupdf` 等）；复杂报表版式可能不如云端解析稳定。
-- **有 API Key**：保持 `parser.use_llamaparse: true`（默认），即可获得高保真表格与双栏解析。
-
-### 步骤 4：`configs/config.yaml`（常用项）
-
-| 配置项 | 作用 |
-|--------|------|
-| `llm.ollama_base_url` | Ollama 地址，本机默认 `http://localhost:11434`。 |
-| `llm.strong_model` / `weak_model` | 须与 `ollama pull` 的模型名一致（默认 `qwen2.5:7b`）。 |
-| `embedding.device` | Apple Silicon 用 `mps`；NVIDIA 用 `cuda`；无 GPU 可改为 `cpu`（会较慢）。 |
-| `parser.use_llamaparse` | 为 `true` 时需配置 `LLAMA_CLOUD_API_KEY`；否则请改为 `false`。 |
-| `storage.chroma_persist_dir` / `data_dir` | 向量库与业务数据目录，默认 `./chroma_db`、`./data`。 |
-
-其余项（分块策略、RAPTOR、检索 `top_k` 等）可参考 [技术规格说明](docs/specs/technical_specification.md) 与 `docs/technical_design.md`。
-
-### 步骤 5：启动 Web 工作台
-
-```bash
-# 确认已激活虚拟环境，且当前目录为项目根目录
-python -m src.ui.app
-```
-
-浏览器打开：**http://localhost:7860**
-
-### 启动前检查清单
-
-| 检查项 | 说明 |
-|--------|------|
-| 工作目录 | 运行 `python -m src.ui.app` 时 cwd 为项目根目录。 |
-| Ollama | 服务已启动，且已 `pull` 与 YAML 一致的模型。 |
-| 解析 | 使用 LlamaParse 时已配置 `.env`；否则已将 `use_llamaparse` 设为 `false`。 |
-| 设备 | `embedding.device` 与当前机器匹配（`mps` / `cuda` / `cpu`）。 |
+### 2. 实验复现与跑分
+如需复现《项目进展报告》中的 **Phase 1 (基础 256 分块)** 与 **Phase 2A (语义分块+RAPTOR+混合检索)** 的性能差异，请直接参考专属的消融实验说明书：
+👉 **[中期项目进展报告：消融实验与评估操作规范](docs/05_progress_report_guide.md)**
 
 ---
 
-## 文档与评估
+## 📁 目录结构 (Repository Structure)
 
-- **技术细节**（RAPTOR、检索链路、数据流等）：[技术规格说明](docs/specs/technical_specification.md)
-
-项目集成 **Ragas** 与基于正则的 **Citation Audit**。运行基准评估：
-
-```bash
-python -m src.evaluation.ragas_eval
+```text
+CS6496-group/
+├── configs/
+│   └── config.yaml           # 全局中枢配置（控制单路/多路、基线/语义策略）
+├── data/                     # 存放 PDF 研报语料、20题测试集与输出的评测 CSV
+├── docs/                     # 系统核心设计文档与架构蓝图
+├── src/
+│   ├── ingest/               # 数据接入层 (PDF 解析、分块器、ChromaDB 入库)
+│   ├── retrieval/            # 检索层 (BM25+Vector 混合召回、RRF 融合、精排)
+│   ├── generation/           # 生成层 (大模型对话代理、Prompt 防幻觉引擎)
+│   ├── evaluation/           # 评估层 (RAGAS 本地 72B 裁判脚本)
+│   └── utils/                # 基础工具 (全局配置解析)
+└── requirements.txt
 ```
+
+---
+*Built for extreme performance on Apple Silicon Unified Memory Architecture.*

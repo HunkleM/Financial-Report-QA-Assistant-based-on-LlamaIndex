@@ -1,42 +1,41 @@
+# Insight: 金融研报分析引擎 - 全局配置文件
+# 本配置目前处于 Phase 1: Foundation MVP 状态
+
 llm:
-  strong_model: qwen2.5:7b
-  weak_model: qwen2.5:7b
-  ollama_base_url: http://localhost:11434
-  temperature: 0.1
-  max_tokens: 2048
+  strong_model: "qwen2.5:72b"          # Phase 1: 仅用于 RAGAS 评估裁判
+  weak_model: "qwen2.5:7b"             # Phase 1: 核心问答生成模型
+  ollama_base_url: "http://localhost:11434"
+  temperature: 0.1                     # 极低温度，追求事实性，抑制金融幻觉
 
 embedding:
-  model: BAAI/bge-m3
-  device: mps          # Apple Silicon 加速
+  model: "BAAI/bge-m3"                 # 多语言、高精度的稠密向量提取
+  device: "mps"                        # 启用 Apple M3 Ultra 神经引擎硬件加速
 
 reranker:
-  model: BAAI/bge-reranker-base
-  top_n: 5
-
-parser:
-  use_llamaparse: true  # 是否启用 LlamaParse (需要 API Key)
+  model: "BAAI/bge-reranker-base"      # 检索后的 Cross-Encoder 精排模型
+  top_n: 5                             # 送入 LLM 的最终 Chunk 数量
 
 chunking:
-  strategy: "semantic"  # 可选: "fixed", "semantic"
-  chunk_size: 512       # fixed 策略使用
-  chunk_overlap: 51     # fixed 策略使用
-  semantic_buffer_size: 1               # semantic 策略参数
-  semantic_breakpoint_percentile: 95    # semantic 策略分段阈值
+  strategy: "semantic"                 # Phase 2 开启: 真正的自适应语义切块
+  chunk_size: 256                      # (基线保留字段)
+  chunk_overlap: 25                    # (基线保留字段)
+  semantic_buffer_size: 1              # 语义分块窗口缓冲 (考察前后 1 句话)
+  semantic_breakpoint_percentile: 95   # 余弦相似度低于 95% 时切分，保留完整逻辑
 
 raptor:
-  use_raptor: true      # 是否启用 RAPTOR 层次结构
-  max_levels: 3         # 树的最大层数 (层数越多构建越慢)
-  summary_model: "qwen2.5:7b" # 建议用小模型生成摘要以节省时间
+  use_raptor: true                     # Phase 2 开启: 构建宏观摘要树
+  max_levels: 3                        # 摘要树的层级 (叶子节点 -> L1 -> L2)
+  summary_model: "qwen2.5:7b"          # 使用 7B 小模型在后台高速刷摘要
 
 retrieval:
-  bm25_top_k: 20
-  vector_top_k: 20
-  final_top_k: 5
+  bm25_top_k: 20                       # Phase 2 开启: 词频检索召回数量
+  vector_top_k: 20                     # 向量检索召回数量
+  final_top_k: 5                       # 最终送入生成的节点数 (与 reranker.top_n 保持一致)
 
 storage:
-  chroma_persist_dir: ./chroma_db
-  data_dir: ./data
+  chroma_persist_dir: "./chroma_db/phase2_ultimate" # Phase 2 独立的高级数据库目录
+  data_dir: "./data"                   # 存放原始 PDF 的目录
 
 evaluation:
-  test_set_path: ./data/test_set.json
-  judge_model: qwen2.5:7b
+  test_set_path: "./data/test_set.json"
+  judge_model: "qwen2.5:72b"           # 评估闭环的无情本地裁判
