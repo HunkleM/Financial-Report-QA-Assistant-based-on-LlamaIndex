@@ -3,9 +3,12 @@ __pycache__/
 *.py[cod]
 *$py.class
 .venv/
+.venv*/
 venv/
 ENV/
 .env
+.env.*
+!.env.example
 
 # Project Specific Data & Databases
 # 忽略 ChromaDB 向量数据库目录，防止将数十 GB 的向量数据提交到 Git
@@ -15,6 +18,8 @@ kg_store/
 
 # Logs and Human Feedback
 *.log
+*.out
+*.err
 human_feedback_log.jsonl
 
 # OS generated files
