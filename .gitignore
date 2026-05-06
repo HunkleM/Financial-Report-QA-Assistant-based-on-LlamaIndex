@@ -57,3 +57,6 @@ dist/
 *.tmp
 *.temp
 .cache/
+report/tmp/
+
+src.zip
